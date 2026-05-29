@@ -2,6 +2,7 @@ import numpy as np
 from helperfunctions import add_pose_from_global, add_landmark_measurement_from_global
 import gtsam
 from gtsam.symbol_shorthand import L, X
+import copy
 
 ODOMETRY_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.2, 0.2, 0.1]))
 MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.1]))
@@ -35,7 +36,6 @@ def optimize(graph, initial_estimate):
     params = gtsam.LevenbergMarquardtParams()
     optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial_estimate, params)
     result = optimizer.optimize()
-    print(result)
     return result
 
 def minimize_marginals(graph, initial_estimate, pose_options):
@@ -69,12 +69,19 @@ def minimize_marginals(graph, initial_estimate, pose_options):
     graph = add_landmark_measurement(graph, result, pose_5, best_landmark)
     result = optimize(graph, initial_estimate)
 
-    return best_pose, best_landmark, best_sum
+    marginals = gtsam.Marginals(graph, result)
+    final_sum = (marginals.marginalCovariance(L(1)).sum() +
+                 marginals.marginalCovariance(L(2)).sum())
+
+    return best_pose, best_landmark, final_sum
 
 def minimize_errors(graph, initial_estimate, pose_options):
     best_pose = None
     best_landmark = None
     best_sum = float('inf')
+
+    # Get baseline optimized result WITHOUT X(5) to use as ground truth
+    baseline_result = optimize(graph, initial_estimate)
 
     for pose_key, pose_5 in pose_options.items():
         for landmark in [1, 2]:
@@ -86,10 +93,10 @@ def minimize_errors(graph, initial_estimate, pose_options):
             g = add_landmark_measurement(g, result, pose_5, landmark)
             result = optimize(g, ie)
 
-            # Sum of position errors for X(1), X(2), X(3)
+            # Compare optimized poses X(1), X(2), X(3) against baseline result
             errors = [
                 np.linalg.norm(result.atPose2(X(i)).translation() -
-                               initial_estimate.atPose2(X(i)).translation())
+                               baseline_result.atPose2(X(i)).translation())
                 for i in [1, 2, 3]
             ]
             total = sum(errors)
@@ -99,6 +106,7 @@ def minimize_errors(graph, initial_estimate, pose_options):
                 best_pose = pose_key
                 best_landmark = landmark
 
+    # Re-run with best choice
     pose_5 = pose_options[best_pose]
     graph, initial_estimate = add_pose(graph, initial_estimate, pose_5)
     result = optimize(graph, initial_estimate)
@@ -107,7 +115,7 @@ def minimize_errors(graph, initial_estimate, pose_options):
 
     list_of_errors = [
         np.linalg.norm(result.atPose2(X(i)).translation() -
-                       initial_estimate.atPose2(X(i)).translation())
+                       baseline_result.atPose2(X(i)).translation())
         for i in [1, 2, 3]
     ]
     sum_of_errors = sum(list_of_errors)
