@@ -1,5 +1,4 @@
 import numpy as np
-import copy
 from helperfunctions import add_pose_from_global, add_landmark_measurement_from_global
 import gtsam
 from gtsam.symbol_shorthand import L, X
@@ -45,7 +44,6 @@ def minimize_marginals(graph, initial_estimate, pose_options):
 
     for pose_key, pose_5 in pose_options.items():
         for landmark in [1, 2]:
-            # Use fresh copies every iteration
             g = gtsam.NonlinearFactorGraph(graph)
             ie = gtsam.Values(initial_estimate)
 
@@ -80,19 +78,23 @@ def minimize_errors(graph, initial_estimate, pose_options):
             g = add_landmark_measurement(g, result, pose_5, landmark)
             result = optimize(g, ie)
 
-            # Sum of translation norms for X(1), X(2), X(3)
-            errors = [
-                np.linalg.norm(result.atPose2(X(i)).translation())
-                for i in [1, 2, 3]
-            ]
-            total = sum(errors)
+            # Use graph error for X(1), X(2), X(3) factors only
+            list_of_errors = []
+            for i in [1, 2, 3]:
+                pose_error = result.atPose2(X(i)).between(
+                    initial_estimate.atPose2(X(i))
+                )
+                list_of_errors.append(
+                    pose_error.translation().norm() + abs(pose_error.theta())
+                )
+            total = sum(list_of_errors)
 
             if total < best_sum:
                 best_sum = total
                 best_pose = pose_key
                 best_landmark = landmark
 
-    # Compute final errors for best choice
+    # Final run with best choice
     g = gtsam.NonlinearFactorGraph(graph)
     ie = gtsam.Values(initial_estimate)
     pose_5 = pose_options[best_pose]
@@ -101,9 +103,13 @@ def minimize_errors(graph, initial_estimate, pose_options):
     g = add_landmark_measurement(g, result, pose_5, best_landmark)
     result = optimize(g, ie)
 
-    list_of_errors = [
-        np.linalg.norm(result.atPose2(X(i)).translation())
-        for i in [1, 2, 3]
-    ]
+    list_of_errors = []
+    for i in [1, 2, 3]:
+        pose_error = result.atPose2(X(i)).between(
+            initial_estimate.atPose2(X(i))
+        )
+        list_of_errors.append(
+            pose_error.translation().norm() + abs(pose_error.theta())
+        )
     sum_of_errors = sum(list_of_errors)
     return best_pose, best_landmark, sum_of_errors
