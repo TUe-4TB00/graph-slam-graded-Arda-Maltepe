@@ -45,7 +45,6 @@ def minimize_marginals(graph, initial_estimate, pose_options):
 
     for pose_key, pose_5 in pose_options.items():
         for landmark in [1, 2]:
-            # Work on copies so we don't modify the originals
             g = gtsam.NonlinearFactorGraph(graph)
             ie = gtsam.Values(initial_estimate)
 
@@ -63,7 +62,7 @@ def minimize_marginals(graph, initial_estimate, pose_options):
                 best_pose = pose_key
                 best_landmark = landmark
 
-    # Re-run with best choice to return correct result
+    # Re-run with best choice
     pose_5 = pose_options[best_pose]
     graph, initial_estimate = add_pose(graph, initial_estimate, pose_5)
     result = optimize(graph, initial_estimate)
@@ -87,7 +86,7 @@ def minimize_errors(graph, initial_estimate, pose_options):
             g = add_landmark_measurement(g, result, pose_5, landmark)
             result = optimize(g, ie)
 
-            # Errors for X(1), X(2), X(3)
+            # Sum of position errors for X(1), X(2), X(3)
             errors = [
                 np.linalg.norm(result.atPose2(X(i)).translation() -
                                initial_estimate.atPose2(X(i)).translation())
